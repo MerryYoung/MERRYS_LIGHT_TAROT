@@ -81,7 +81,7 @@ elif st.session_state.page == 'result':
     
     try:
         # [중요] 최신 v1 주소 사용
-        url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1/models/models/gemini-1.5-flash:generateContent?key={api_key}"
         prompt = f"당신은 타로 마스터입니다. {d['gen']} {d['age']} 내담자의 {d['cat']}에 대한 질문 '{d['que']}'을 리딩하세요. 78장 타로 중 3장을 뽑아 과거/현재/미래 관점에서 리딩 제목과 상세 내용을 정중하게 작성하세요."
         
         res = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps({"contents": [{"parts": [{"text": prompt}]}]}), timeout=10)
