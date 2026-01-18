@@ -10,7 +10,7 @@ if 'page' not in st.session_state: st.session_state.page = 'info'
 if 'data' not in st.session_state: st.session_state.data = {}
 if 'chosen' not in st.session_state: st.session_state.chosen = [] 
 
-# 스타일 정의
+# 골드 테마 스타일 적용
 st.markdown("""
     <style>
     .main { background-color: #050505; color: #e0e0e0; }
@@ -67,7 +67,7 @@ elif st.session_state.page == 'loading':
     st.session_state.page = 'result'
     st.rerun()
 
-# --- [PAGE 4] 결과 (에러 원천 차단 로직) ---
+# --- [PAGE 4] 결과 (성공할 때까지 시도하는 스마트 로직) ---
 elif st.session_state.page == 'result':
     d = st.session_state.data
     cols = st.columns(4)
@@ -76,39 +76,41 @@ elif st.session_state.page == 'result':
     with cols[2]: st.markdown(f"<div class='info-box'><div class='label'>MODE</div><div class='value'>{d['mode']}</div></div>", unsafe_allow_html=True)
     with cols[3]: st.markdown(f"<div class='info-box'><div class='label'>TOPIC</div><div class='value'>{d['que']}</div></div>", unsafe_allow_html=True)
     
-    try:
-        # [해결책] 구글 API의 가장 표준적인 엔드포인트와 데이터 구조 사용
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-        
-        payload = {
-            "contents": [{
-                "parts": [{"text": f"당신은 품격 있는 타로 마스터입니다. 내담자({d['gen']}, {d['age']})의 {d['cat']} 질문 '{d['que']}'에 대해 카드 3장을 활용해 과거, 현재, 미래 관점에서 깊이 있는 리딩을 제공하세요. 첫 줄은 강렬한 제목을 달아주세요."}]
-            }],
-            "generationConfig": {
-                "temperature": 0.8,
-                "maxOutputTokens": 1000
-            }
-        }
-        
-        # 실제 요청 및 에러 핸들링
-        response = requests.post(url, json=payload, timeout=30)
-        
-        if response.status_code == 200:
-            res_json = response.json()
-            if 'candidates' in res_json:
-                answer = res_json['candidates'][0]['content']['parts'][0]['text']
-                st.markdown(f"<div class='result-content'>{answer}</div>", unsafe_allow_html=True)
-            else:
-                st.error("AI가 답변을 생성하지 못했습니다. 질문 내용을 조금 더 구체적으로 적어주세요.")
-        else:
-            # 에러 발생 시 상세 정보 노출 (디버깅용)
-            st.error(f"통신 에러가 발생했습니다. (Code: {response.status_code})")
-            with st.expander("에러 상세 내용 보기"):
-                st.write(response.text)
-
-    except Exception as e:
-        st.error(f"시스템 오류: {str(e)}")
+    # AI에게 보낼 공통 질문 세팅
+    prompt = f"당신은 20년 경력의 타로 마스터입니다. {d['gen']} {d['age']} 내담자의 {d['cat']} 질문 '{d['que']}'에 대해 카드 3장을 활용해 과거, 현재, 미래 리딩을 해주세요. 첫 줄은 제목을 강조해서 적어주세요."
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
     
+    # 시도해볼 주소 목록 (모든 에러 케이스 대응)
+    url_list = [
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}",
+        f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}",
+        f"https://generativelanguage.googleapis.com/v1beta/gemini-1.5-flash:generateContent?key={api_key}"
+    ]
+    
+    success = False
+    answer = ""
+    last_error = ""
+
+    # 반복문을 통해 성공할 때까지 주소를 바꿔가며 요청
+    for url in url_list:
+        try:
+            res = requests.post(url, json=payload, timeout=15)
+            res_data = res.json()
+            if 'candidates' in res_data:
+                answer = res_data['candidates'][0]['content']['parts'][0]['text']
+                success = True
+                break
+            else:
+                last_error = res_data.get('error', {}).get('message', 'Unknown Error')
+        except Exception as e:
+            last_error = str(e)
+
+    if success:
+        st.markdown(f"<div class='result-content'>{answer}</div>", unsafe_allow_html=True)
+    else:
+        st.error(f"지속적인 오류 발생: {last_error}")
+        st.info("API 키가 올바른지, 혹은 구글 클라우드에서 Gemini API가 활성화되었는지 확인이 필요할 수 있습니다.")
+
     if st.button("처음으로"):
         st.session_state.page = 'info'
         st.rerun()
