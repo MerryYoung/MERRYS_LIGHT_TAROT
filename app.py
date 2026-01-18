@@ -3,7 +3,7 @@ import requests
 import json
 import time
 
-# --- 1. 페이지 설정 ---
+# --- 1. 페이지 설정 및 세션 초기화 ---
 st.set_page_config(page_title="MYSTIC INSIGHT", layout="wide", initial_sidebar_state="collapsed")
 
 if 'page' not in st.session_state: st.session_state.page = 'info'
@@ -67,7 +67,7 @@ elif st.session_state.page == 'loading':
     st.session_state.page = 'result'
     st.rerun()
 
-# --- [PAGE 4] 결과 (가장 확실한 주소 체계 적용) ---
+# --- [PAGE 4] 결과 (에러 원천 차단 로직) ---
 elif st.session_state.page == 'result':
     d = st.session_state.data
     cols = st.columns(4)
@@ -77,29 +77,37 @@ elif st.session_state.page == 'result':
     with cols[3]: st.markdown(f"<div class='info-box'><div class='label'>TOPIC</div><div class='value'>{d['que']}</div></div>", unsafe_allow_html=True)
     
     try:
-        # [핵심] 구글 API의 모델 전체 경로를 사용하는 방식
+        # [해결책] 구글 API의 가장 표준적인 엔드포인트와 데이터 구조 사용
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
         
-        # [핵심] JSON 페이로드 구조를 더 단순하고 명확하게 유지
         payload = {
             "contents": [{
-                "parts": [{"text": f"당신은 타로 마스터입니다. {d['gen']} {d['age']} 내담자의 {d['cat']} 질문 '{d['que']}'을 타로 카드 3장으로 리딩해주세요. 제목을 첫 줄에 강조하고 정중한 말투로 상세히 리딩하세요."}]
-            }]
+                "parts": [{"text": f"당신은 품격 있는 타로 마스터입니다. 내담자({d['gen']}, {d['age']})의 {d['cat']} 질문 '{d['que']}'에 대해 카드 3장을 활용해 과거, 현재, 미래 관점에서 깊이 있는 리딩을 제공하세요. 첫 줄은 강렬한 제목을 달아주세요."}]
+            }],
+            "generationConfig": {
+                "temperature": 0.8,
+                "maxOutputTokens": 1000
+            }
         }
         
-        response = requests.post(url, json=payload, timeout=20)
-        res_data = response.json()
+        # 실제 요청 및 에러 핸들링
+        response = requests.post(url, json=payload, timeout=30)
         
-        if 'candidates' in res_data:
-            answer = res_data['candidates'][0]['content']['parts'][0]['text']
-            st.markdown(f"<div class='result-content'>{answer}</div>", unsafe_allow_html=True)
+        if response.status_code == 200:
+            res_json = response.json()
+            if 'candidates' in res_json:
+                answer = res_json['candidates'][0]['content']['parts'][0]['text']
+                st.markdown(f"<div class='result-content'>{answer}</div>", unsafe_allow_html=True)
+            else:
+                st.error("AI가 답변을 생성하지 못했습니다. 질문 내용을 조금 더 구체적으로 적어주세요.")
         else:
-            # 실패 시 에러 코드와 메시지를 명확히 출력
-            st.error("리딩 정보를 가져오는 데 실패했습니다.")
-            st.write("에러 원인:", res_data.get('error', {}).get('message', '알 수 없는 API 오류'))
+            # 에러 발생 시 상세 정보 노출 (디버깅용)
+            st.error(f"통신 에러가 발생했습니다. (Code: {response.status_code})")
+            with st.expander("에러 상세 내용 보기"):
+                st.write(response.text)
 
     except Exception as e:
-        st.error(f"서버 통신 오류: {str(e)}")
+        st.error(f"시스템 오류: {str(e)}")
     
     if st.button("처음으로"):
         st.session_state.page = 'info'
