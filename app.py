@@ -8,9 +8,9 @@ st.set_page_config(page_title="MYSTIC INSIGHT", layout="wide", initial_sidebar_s
 
 if 'page' not in st.session_state: st.session_state.page = 'info'
 if 'data' not in st.session_state: st.session_state.data = {}
-if 'chosen' not in st.session_state: st.session_state.chosen = [] # 선택한 카드 저장용
+if 'chosen' not in st.session_state: st.session_state.chosen = [] 
 
-# 스타일 정의 (보내주신 이미지의 골드 테마 재현)
+# 스타일 정의 (골드 테마 재현)
 st.markdown("""
     <style>
     .main { background-color: #050505; color: #e0e0e0; }
@@ -18,7 +18,7 @@ st.markdown("""
     .info-box { background: #111; padding: 15px; border-radius: 10px; border: 1px solid #333; text-align: center; margin-bottom: 10px;}
     .label { color: #888; font-size: 0.8rem; }
     .value { color: #c09100; font-weight: bold; font-size: 1rem; }
-    .result-content { background: #161616; padding: 30px; border-radius: 15px; line-height: 1.8; border: 1px solid #222; white-space: pre-wrap; }
+    .result-content { background: #161616; padding: 30px; border-radius: 15px; line-height: 1.8; border: 1px solid #222; white-space: pre-wrap; font-size: 1.1rem; color: #f0f0f0; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -39,11 +39,11 @@ if st.session_state.page == 'info':
             if not question: st.warning("질문을 입력해주세요.")
             else:
                 st.session_state.data = {"mode": mode, "cat": category, "gen": gender, "age": age, "que": question}
-                st.session_state.chosen = [] # 카드 초기화
+                st.session_state.chosen = [] 
                 st.session_state.page = 'shuffle'
                 st.rerun()
 
-# --- [PAGE 2] 카드 셔플 (3장 선택 로직 수정) ---
+# --- [PAGE 2] 카드 셔플 ---
 elif st.session_state.page == 'shuffle':
     st.markdown("<h2 style='text-align: center; color: #c09100;'>THE DECK OF FATE</h2>", unsafe_allow_html=True)
     st.write(f"현재 선택된 카드: {len(st.session_state.chosen)} / 3")
@@ -51,11 +51,9 @@ elif st.session_state.page == 'shuffle':
     cols = st.columns(6)
     for i in range(18):
         with cols[i % 6]:
-            # 이미 선택한 카드는 비활성화
             is_selected = i in st.session_state.chosen
             if st.button(f"{'★' if is_selected else '?'}", key=f"c_{i}", disabled=is_selected):
                 st.session_state.chosen.append(i)
-                # 3장을 다 고르면 페이지 이동
                 if len(st.session_state.chosen) >= 3:
                     st.session_state.page = 'loading'
                 st.rerun()
@@ -70,7 +68,7 @@ elif st.session_state.page == 'loading':
     st.session_state.page = 'result'
     st.rerun()
 
-# --- [PAGE 4] 결과 ---
+# --- [PAGE 4] 결과 (가장 많이 수정된 구간) ---
 elif st.session_state.page == 'result':
     d = st.session_state.data
     cols = st.columns(4)
@@ -80,23 +78,47 @@ elif st.session_state.page == 'result':
     with cols[3]: st.markdown(f"<div class='info-box'><div class='label'>TOPIC</div><div class='value'>{d['que']}</div></div>", unsafe_allow_html=True)
     
     try:
-        # [중요] 최신 v1 주소 사용
+        # 1. 주소 및 데이터(payload) 설정
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-        prompt = f"당신은 타로 마스터입니다. {d['gen']} {d['age']} 내담자의 {d['cat']}에 대한 질문 '{d['que']}'을 리딩하세요. 78장 타로 중 3장을 뽑아 과거/현재/미래 관점에서 리딩 제목과 상세 내용을 정중하게 작성하세요."
         
-        res = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps({"contents": [{"parts": [{"text": prompt}]}]}), timeout=10)
+        prompt_text = f"""
+        당신은 20년 경력의 타로 마스터입니다. 
+        내담자 정보: {d['gen']} {d['age']}, 주제: {d['cat']}, 질문: {d['que']}
+        
+        유니버셜 웨이트 78장 타로 카드 중 무작위로 3장을 선택하여 과거, 현재, 미래 관점에서 리딩해주세요.
+        리딩 제목을 첫 줄에 "큰따옴표"와 함께 아주 강렬하게 적어주시고, 
+        내담자의 마음을 어루만지는 품격 있는 말투로 아주 상세하게 작성하세요.
+        {d['mode']}가 '무료 상담'인 경우 마지막에 '더 디테일한 미래 조언은 유료 정밀 상담에서 확인 가능하다'는 멘트를 자연스럽게 넣으세요.
+        """
+        
+        payload = {
+            "contents": [{
+                "parts": [{
+                    "text": prompt_text
+                }]
+            }]
+        }
+        
+        # 2. API 호출
+        res = requests.post(
+            url, 
+            headers={'Content-Type': 'application/json'}, 
+            data=json.dumps(payload), 
+            timeout=15
+        )
         res_data = res.json()
         
+        # 3. 결과 출력 로직
         if 'candidates' in res_data:
             ans = res_data['candidates'][0]['content']['parts'][0]['text']
             st.markdown(f"<div class='result-content'>{ans}</div>", unsafe_allow_html=True)
+            st.button("전체 복사 (기능은 추후 보강)")
         else:
-            # 상세 에러 메시지 출력 (원인 파악용)
             st.error(f"AI 응답 오류: {res_data.get('error', {}).get('message', '알 수 없는 오류')}")
-            st.write("응답 전체 데이터:", res_data) # 에러 확인용 임시 코드
+            st.write("상세 에러 내용:", res_data) 
             
     except Exception as e:
-        st.error(f"통신 오류 발생: {str(e)}")
+        st.error(f"통신 중 예기치 못한 오류 발생: {str(e)}")
     
     if st.button("처음으로"):
         st.session_state.page = 'info'
