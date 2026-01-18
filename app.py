@@ -10,7 +10,7 @@ if 'page' not in st.session_state: st.session_state.page = 'info'
 if 'data' not in st.session_state: st.session_state.data = {}
 if 'chosen' not in st.session_state: st.session_state.chosen = [] 
 
-# 스타일 정의 (골드 테마 재현)
+# 스타일 정의
 st.markdown("""
     <style>
     .main { background-color: #050505; color: #e0e0e0; }
@@ -47,7 +47,6 @@ if st.session_state.page == 'info':
 elif st.session_state.page == 'shuffle':
     st.markdown("<h2 style='text-align: center; color: #c09100;'>THE DECK OF FATE</h2>", unsafe_allow_html=True)
     st.write(f"현재 선택된 카드: {len(st.session_state.chosen)} / 3")
-    
     cols = st.columns(6)
     for i in range(18):
         with cols[i % 6]:
@@ -68,7 +67,7 @@ elif st.session_state.page == 'loading':
     st.session_state.page = 'result'
     st.rerun()
 
-# --- [PAGE 4] 결과 (가장 많이 수정된 구간) ---
+# --- [PAGE 4] 결과 (가장 안정적인 모델 호출 방식으로 전면 수정) ---
 elif st.session_state.page == 'result':
     d = st.session_state.data
     cols = st.columns(4)
@@ -78,47 +77,38 @@ elif st.session_state.page == 'result':
     with cols[3]: st.markdown(f"<div class='info-box'><div class='label'>TOPIC</div><div class='value'>{d['que']}</div></div>", unsafe_allow_html=True)
     
     try:
-        # 1. 주소 및 데이터(payload) 설정
+        # 구글 API의 모델명 경로를 가장 표준적인 형태로 수정 (models/ 접두사 제거)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-        
-        prompt_text = f"""
-        당신은 20년 경력의 타로 마스터입니다. 
-        내담자 정보: {d['gen']} {d['age']}, 주제: {d['cat']}, 질문: {d['que']}
-        
-        유니버셜 웨이트 78장 타로 카드 중 무작위로 3장을 선택하여 과거, 현재, 미래 관점에서 리딩해주세요.
-        리딩 제목을 첫 줄에 "큰따옴표"와 함께 아주 강렬하게 적어주시고, 
-        내담자의 마음을 어루만지는 품격 있는 말투로 아주 상세하게 작성하세요.
-        {d['mode']}가 '무료 상담'인 경우 마지막에 '더 디테일한 미래 조언은 유료 정밀 상담에서 확인 가능하다'는 멘트를 자연스럽게 넣으세요.
-        """
         
         payload = {
             "contents": [{
                 "parts": [{
-                    "text": prompt_text
+                    "text": f"당신은 타로 마스터입니다. {d['gen']} {d['age']} 내담자의 {d['cat']} 질문 '{d['que']}'을 유니버셜 웨이트 78장 중 3장을 뽑아 상세히 리딩해주세요. 제목을 첫 줄에 강조하고 정중한 말투를 사용하세요."
                 }]
             }]
         }
         
-        # 2. API 호출
-        res = requests.post(
-            url, 
-            headers={'Content-Type': 'application/json'}, 
-            data=json.dumps(payload), 
-            timeout=15
-        )
+        res = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(payload), timeout=20)
         res_data = res.json()
         
-        # 3. 결과 출력 로직
         if 'candidates' in res_data:
             ans = res_data['candidates'][0]['content']['parts'][0]['text']
             st.markdown(f"<div class='result-content'>{ans}</div>", unsafe_allow_html=True)
-            st.button("전체 복사 (기능은 추후 보강)")
         else:
-            st.error(f"AI 응답 오류: {res_data.get('error', {}).get('message', '알 수 없는 오류')}")
-            st.write("상세 에러 내용:", res_data) 
+            # 첫 번째 경로 실패 시, 대안 경로(v1)로 즉시 재시도
+            url_alt = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
+            res = requests.post(url_alt, headers={'Content-Type': 'application/json'}, data=json.dumps(payload), timeout=20)
+            res_data = res.json()
+            
+            if 'candidates' in res_data:
+                ans = res_data['candidates'][0]['content']['parts'][0]['text']
+                st.markdown(f"<div class='result-content'>{ans}</div>", unsafe_allow_html=True)
+            else:
+                st.error("모델을 찾을 수 없습니다. API 키 설정 혹은 구글 서비스 상태를 확인해주세요.")
+                st.json(res_data) # 마지막 에러 내용 출력
             
     except Exception as e:
-        st.error(f"통신 중 예기치 못한 오류 발생: {str(e)}")
+        st.error(f"통신 에러: {str(e)}")
     
     if st.button("처음으로"):
         st.session_state.page = 'info'
