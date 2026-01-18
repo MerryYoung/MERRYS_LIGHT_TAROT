@@ -3,7 +3,7 @@ import requests
 import json
 import time
 
-# --- 1. 페이지 설정 및 세션 상태 초기화 ---
+# --- 1. 페이지 설정 ---
 st.set_page_config(page_title="MYSTIC INSIGHT", layout="wide", initial_sidebar_state="collapsed")
 
 if 'page' not in st.session_state: st.session_state.page = 'info'
@@ -14,7 +14,7 @@ if 'chosen' not in st.session_state: st.session_state.chosen = []
 st.markdown("""
     <style>
     .main { background-color: #050505; color: #e0e0e0; }
-    .stButton>button { width: 100%; border-radius: 8px; background: #8a6d3b; color: white; border: none; font-weight: bold; }
+    .stButton>button { width: 100%; border-radius: 8px; background: #8a6d3b; color: white; border: none; font-weight: bold; height: 45px; }
     .info-box { background: #111; padding: 15px; border-radius: 10px; border: 1px solid #333; text-align: center; margin-bottom: 10px;}
     .label { color: #888; font-size: 0.8rem; }
     .value { color: #c09100; font-weight: bold; font-size: 1rem; }
@@ -59,7 +59,7 @@ elif st.session_state.page == 'shuffle':
 
 # --- [PAGE 3] 로딩 ---
 elif st.session_state.page == 'loading':
-    st.markdown("<h2 style='text-align: center; color: #c09100;'>DECRYPTING AURA</h2>", unsafe_allow_html=True)
+    st.markdown("<br><br><h2 style='text-align: center; color: #c09100;'>DECRYPTING AURA</h2>", unsafe_allow_html=True)
     bar = st.progress(0)
     for i in range(100):
         time.sleep(0.01)
@@ -67,7 +67,7 @@ elif st.session_state.page == 'loading':
     st.session_state.page = 'result'
     st.rerun()
 
-# --- [PAGE 4] 결과 (가장 안정적인 모델 호출 방식으로 전면 수정) ---
+# --- [PAGE 4] 결과 (가장 확실한 주소 체계 적용) ---
 elif st.session_state.page == 'result':
     d = st.session_state.data
     cols = st.columns(4)
@@ -77,38 +77,29 @@ elif st.session_state.page == 'result':
     with cols[3]: st.markdown(f"<div class='info-box'><div class='label'>TOPIC</div><div class='value'>{d['que']}</div></div>", unsafe_allow_html=True)
     
     try:
-        # 구글 API의 모델명 경로를 가장 표준적인 형태로 수정 (models/ 접두사 제거)
+        # [핵심] 구글 API의 모델 전체 경로를 사용하는 방식
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
         
+        # [핵심] JSON 페이로드 구조를 더 단순하고 명확하게 유지
         payload = {
             "contents": [{
-                "parts": [{
-                    "text": f"당신은 타로 마스터입니다. {d['gen']} {d['age']} 내담자의 {d['cat']} 질문 '{d['que']}'을 유니버셜 웨이트 78장 중 3장을 뽑아 상세히 리딩해주세요. 제목을 첫 줄에 강조하고 정중한 말투를 사용하세요."
-                }]
+                "parts": [{"text": f"당신은 타로 마스터입니다. {d['gen']} {d['age']} 내담자의 {d['cat']} 질문 '{d['que']}'을 타로 카드 3장으로 리딩해주세요. 제목을 첫 줄에 강조하고 정중한 말투로 상세히 리딩하세요."}]
             }]
         }
         
-        res = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(payload), timeout=20)
-        res_data = res.json()
+        response = requests.post(url, json=payload, timeout=20)
+        res_data = response.json()
         
         if 'candidates' in res_data:
-            ans = res_data['candidates'][0]['content']['parts'][0]['text']
-            st.markdown(f"<div class='result-content'>{ans}</div>", unsafe_allow_html=True)
+            answer = res_data['candidates'][0]['content']['parts'][0]['text']
+            st.markdown(f"<div class='result-content'>{answer}</div>", unsafe_allow_html=True)
         else:
-            # 첫 번째 경로 실패 시, 대안 경로(v1)로 즉시 재시도
-            url_alt = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
-            res = requests.post(url_alt, headers={'Content-Type': 'application/json'}, data=json.dumps(payload), timeout=20)
-            res_data = res.json()
-            
-            if 'candidates' in res_data:
-                ans = res_data['candidates'][0]['content']['parts'][0]['text']
-                st.markdown(f"<div class='result-content'>{ans}</div>", unsafe_allow_html=True)
-            else:
-                st.error("모델을 찾을 수 없습니다. API 키 설정 혹은 구글 서비스 상태를 확인해주세요.")
-                st.json(res_data) # 마지막 에러 내용 출력
-            
+            # 실패 시 에러 코드와 메시지를 명확히 출력
+            st.error("리딩 정보를 가져오는 데 실패했습니다.")
+            st.write("에러 원인:", res_data.get('error', {}).get('message', '알 수 없는 API 오류'))
+
     except Exception as e:
-        st.error(f"통신 에러: {str(e)}")
+        st.error(f"서버 통신 오류: {str(e)}")
     
     if st.button("처음으로"):
         st.session_state.page = 'info'
