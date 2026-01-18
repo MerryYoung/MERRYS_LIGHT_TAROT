@@ -3,14 +3,14 @@ import requests
 import json
 import time
 
-# --- 1. 페이지 설정 및 세션 초기화 ---
+# --- 1. 기본 설정 ---
 st.set_page_config(page_title="MYSTIC INSIGHT", layout="wide", initial_sidebar_state="collapsed")
 
 if 'page' not in st.session_state: st.session_state.page = 'info'
 if 'data' not in st.session_state: st.session_state.data = {}
 if 'chosen' not in st.session_state: st.session_state.chosen = [] 
 
-# 골드 테마 스타일 적용
+# 스타일 정의
 st.markdown("""
     <style>
     .main { background-color: #050505; color: #e0e0e0; }
@@ -39,19 +39,17 @@ if st.session_state.page == 'info':
             if not question: st.warning("질문을 입력해주세요.")
             else:
                 st.session_state.data = {"mode": mode, "cat": category, "gen": gender, "age": age, "que": question}
-                st.session_state.chosen = [] 
                 st.session_state.page = 'shuffle'
                 st.rerun()
 
 # --- [PAGE 2] 카드 셔플 ---
 elif st.session_state.page == 'shuffle':
     st.markdown("<h2 style='text-align: center; color: #c09100;'>THE DECK OF FATE</h2>", unsafe_allow_html=True)
-    st.write(f"현재 선택된 카드: {len(st.session_state.chosen)} / 3")
+    st.write(f"선택된 카드: {len(st.session_state.chosen)} / 3")
     cols = st.columns(6)
     for i in range(18):
         with cols[i % 6]:
-            is_selected = i in st.session_state.chosen
-            if st.button(f"{'★' if is_selected else '?'}", key=f"c_{i}", disabled=is_selected):
+            if st.button("?", key=f"card_{i}", disabled=i in st.session_state.chosen):
                 st.session_state.chosen.append(i)
                 if len(st.session_state.chosen) >= 3:
                     st.session_state.page = 'loading'
@@ -67,50 +65,39 @@ elif st.session_state.page == 'loading':
     st.session_state.page = 'result'
     st.rerun()
 
-# --- [PAGE 4] 결과 (성공할 때까지 시도하는 스마트 로직) ---
+# --- [PAGE 4] 결과 (가장 안정적인 호출 방식) ---
 elif st.session_state.page == 'result':
     d = st.session_state.data
-    cols = st.columns(4)
-    with cols[0]: st.markdown(f"<div class='info-box'><div class='label'>TARGET</div><div class='value'>{d['gen']} / {d['age']}</div></div>", unsafe_allow_html=True)
-    with cols[1]: st.markdown(f"<div class='info-box'><div class='label'>CATEGORY</div><div class='value'>{d['cat']}</div></div>", unsafe_allow_html=True)
-    with cols[2]: st.markdown(f"<div class='info-box'><div class='label'>MODE</div><div class='value'>{d['mode']}</div></div>", unsafe_allow_html=True)
-    with cols[3]: st.markdown(f"<div class='info-box'><div class='label'>TOPIC</div><div class='value'>{d['que']}</div></div>", unsafe_allow_html=True)
+    st.markdown(f"### {d['cat']} 리딩 결과")
     
-    # AI에게 보낼 공통 질문 세팅
-    prompt = f"당신은 20년 경력의 타로 마스터입니다. {d['gen']} {d['age']} 내담자의 {d['cat']} 질문 '{d['que']}'에 대해 카드 3장을 활용해 과거, 현재, 미래 리딩을 해주세요. 첫 줄은 제목을 강조해서 적어주세요."
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    
-    # 시도해볼 주소 목록 (모든 에러 케이스 대응)
-    url_list = [
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}",
-        f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}",
-        f"https://generativelanguage.googleapis.com/v1beta/gemini-1.5-flash:generateContent?key={api_key}"
-    ]
-    
-    success = False
-    answer = ""
-    last_error = ""
+    # API 호출 부분
+    try:
+        # 1. 주소에서 'models/'를 명시적으로 포함 (v1beta 기준 최신 규격)
+        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        
+        # 2. 페이로드 구조를 구글 가이드라인에 100% 맞춤
+        headers = {'Content-Type': 'application/json'}
+        body = {
+            "contents": [{
+                "parts": [{"text": f"당신은 전문 타로 마스터입니다. {d['gen']} {d['age']} 내담자의 {d['cat']}에 대한 고민 '{d['que']}'을 타로 카드 3장으로 아주 상세하고 친절하게 리딩해주세요. 가독성 좋게 줄바꿈을 많이 사용하세요."}]
+            }]
+        }
+        
+        response = requests.post(api_url, headers=headers, data=json.dumps(body), timeout=30)
+        
+        if response.status_code == 200:
+            result = response.json()
+            # 결과 파싱 시 안전하게 get() 사용
+            answer = result.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '리딩 내용을 가져오지 못했습니다.')
+            st.markdown(f"<div class='result-content'>{answer}</div>", unsafe_allow_html=True)
+        else:
+            st.error(f"서버 응답 오류 (코드: {response.status_code})")
+            st.info("API 키가 유효한지 다시 확인해주세요.")
+            
+    except Exception as e:
+        st.error(f"통신 중 오류가 발생했습니다: {str(e)}")
 
-    # 반복문을 통해 성공할 때까지 주소를 바꿔가며 요청
-    for url in url_list:
-        try:
-            res = requests.post(url, json=payload, timeout=15)
-            res_data = res.json()
-            if 'candidates' in res_data:
-                answer = res_data['candidates'][0]['content']['parts'][0]['text']
-                success = True
-                break
-            else:
-                last_error = res_data.get('error', {}).get('message', 'Unknown Error')
-        except Exception as e:
-            last_error = str(e)
-
-    if success:
-        st.markdown(f"<div class='result-content'>{answer}</div>", unsafe_allow_html=True)
-    else:
-        st.error(f"지속적인 오류 발생: {last_error}")
-        st.info("API 키가 올바른지, 혹은 구글 클라우드에서 Gemini API가 활성화되었는지 확인이 필요할 수 있습니다.")
-
-    if st.button("처음으로"):
+    if st.button("처음으로 돌아가기"):
         st.session_state.page = 'info'
+        st.session_state.chosen = []
         st.rerun()
