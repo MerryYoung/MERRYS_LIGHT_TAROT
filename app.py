@@ -1,10 +1,13 @@
 import streamlit as st
-import requests
-import json
+import google.generativeai as genai
 import time
 
-# --- 1. 기본 설정 ---
+# --- 1. 초기 설정 및 API 연결 ---
 st.set_page_config(page_title="MYSTIC INSIGHT", layout="wide", initial_sidebar_state="collapsed")
+
+# API 키 설정 (공식 라이브러리 방식)
+api_key = st.secrets.get("GEMINI_API_KEY", "")
+genai.configure(api_key=api_key)
 
 if 'page' not in st.session_state: st.session_state.page = 'info'
 if 'data' not in st.session_state: st.session_state.data = {}
@@ -21,8 +24,6 @@ st.markdown("""
     .result-content { background: #161616; padding: 30px; border-radius: 15px; line-height: 1.8; border: 1px solid #222; white-space: pre-wrap; font-size: 1.1rem; color: #f0f0f0; }
     </style>
 """, unsafe_allow_html=True)
-
-api_key = st.secrets.get("GEMINI_API_KEY", "")
 
 # --- [PAGE 1] 정보 입력 ---
 if st.session_state.page == 'info':
@@ -45,11 +46,12 @@ if st.session_state.page == 'info':
 # --- [PAGE 2] 카드 셔플 ---
 elif st.session_state.page == 'shuffle':
     st.markdown("<h2 style='text-align: center; color: #c09100;'>THE DECK OF FATE</h2>", unsafe_allow_html=True)
-    st.write(f"선택된 카드: {len(st.session_state.chosen)} / 3")
+    st.write(f"현재 선택된 카드: {len(st.session_state.chosen)} / 3")
     cols = st.columns(6)
     for i in range(18):
         with cols[i % 6]:
-            if st.button("?", key=f"card_{i}", disabled=i in st.session_state.chosen):
+            is_selected = i in st.session_state.chosen
+            if st.button(f"{'★' if is_selected else '?'}", key=f"c_{i}", disabled=is_selected):
                 st.session_state.chosen.append(i)
                 if len(st.session_state.chosen) >= 3:
                     st.session_state.page = 'loading'
@@ -65,39 +67,35 @@ elif st.session_state.page == 'loading':
     st.session_state.page = 'result'
     st.rerun()
 
-# --- [PAGE 4] 결과 (가장 안정적인 호출 방식) ---
+# --- [PAGE 4] 결과 (가장 안전한 라이브러리 호출 방식) ---
 elif st.session_state.page == 'result':
     d = st.session_state.data
-    st.markdown(f"### {d['cat']} 리딩 결과")
+    st.markdown(f"<h3 style='color:#c09100;'>{d['cat']} 리딩 결과</h3>", unsafe_allow_html=True)
     
-    # API 호출 부분
     try:
-        # 1. 주소에서 'models/'를 명시적으로 포함 (v1beta 기준 최신 규격)
-        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        # 모델 설정 (공식 라이브러리가 경로를 알아서 찾아줍니다)
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
-        # 2. 페이로드 구조를 구글 가이드라인에 100% 맞춤
-        headers = {'Content-Type': 'application/json'}
-        body = {
-            "contents": [{
-                "parts": [{"text": f"당신은 전문 타로 마스터입니다. {d['gen']} {d['age']} 내담자의 {d['cat']}에 대한 고민 '{d['que']}'을 타로 카드 3장으로 아주 상세하고 친절하게 리딩해주세요. 가독성 좋게 줄바꿈을 많이 사용하세요."}]
-            }]
-        }
+        prompt = f"""
+        당신은 신비롭고 통찰력 있는 타로 마스터입니다. 
+        내담자({d['gen']}, {d['age']})가 '{d['que']}'라는 질문을 가지고 카드 3장을 뽑았습니다.
+        이 상황에 대해 과거, 현재, 미래의 흐름을 분석하여 매우 구체적이고 따뜻하게 리딩해 주세요.
+        가독성을 위해 문단 사이에 줄바꿈을 많이 넣어주세요.
+        """
         
-        response = requests.post(api_url, headers=headers, data=json.dumps(body), timeout=30)
+        # 답변 생성
+        response = model.generate_content(prompt)
         
-        if response.status_code == 200:
-            result = response.json()
-            # 결과 파싱 시 안전하게 get() 사용
-            answer = result.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '리딩 내용을 가져오지 못했습니다.')
-            st.markdown(f"<div class='result-content'>{answer}</div>", unsafe_allow_html=True)
+        if response.text:
+            st.markdown(f"<div class='result-content'>{response.text}</div>", unsafe_allow_html=True)
         else:
-            st.error(f"서버 응답 오류 (코드: {response.status_code})")
-            st.info("API 키가 유효한지 다시 확인해주세요.")
+            st.error("AI가 답변을 생성하지 못했습니다. 다시 시도해 주세요.")
             
     except Exception as e:
-        st.error(f"통신 중 오류가 발생했습니다: {str(e)}")
-
-    if st.button("처음으로 돌아가기"):
+        st.error(f"오류가 발생했습니다: {str(e)}")
+        st.info("API 키 설정이 올바른지 다시 한번 확인 부탁드립니다.")
+    
+    if st.button("처음으로"):
         st.session_state.page = 'info'
         st.session_state.chosen = []
         st.rerun()
